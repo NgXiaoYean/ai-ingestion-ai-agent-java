@@ -139,8 +139,21 @@ public class MonitoringAnalysisService {
             alertReasons.add("High recent fail count");
         if (consecutiveFailCount >= 3)
             alertReasons.add("3 or more consecutive failures");
-        if ("failed".equalsIgnoreCase(m.getStatus()) && m.getErrorMessage() != null && !m.getErrorMessage().isBlank()) {
-            alertReasons.add("Latest run failed: " + m.getErrorMessage());
+        boolean latestRunFailed = m.getLastFailureTime() != null &&
+                m.getLastRunTime() != null &&
+                m.getLastFailureTime().longValue() == m.getLastRunTime().longValue();
+
+        if (latestRunFailed && m.getErrorMessage() != null && !m.getErrorMessage().isBlank()) {
+            // Format the time nicely for the email
+            String timeStr = "Unknown Time";
+            if (m.getLastFailureTime() != null) {
+                timeStr = java.time.LocalDateTime.ofInstant(
+                        java.time.Instant.ofEpochMilli(m.getLastFailureTime().longValue()),
+                        java.time.ZoneId.of("Asia/Kuala_Lumpur"))
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+            }
+
+            alertReasons.add("Latest run failed at " + timeStr + " with error: " + m.getErrorMessage());
         }
 
         String healthLevel = healthScore >= 90 ? "HEALTHY"

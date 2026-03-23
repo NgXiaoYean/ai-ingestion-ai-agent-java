@@ -140,7 +140,6 @@ public class ArticleService {
         return allNews;
     }
 
-
     private void recordFeedRun(String sourceName, String feedUrl, boolean success, String errorMessage) {
         IngestionMetrics metrics = metricsRepository.findBySourceName(sourceName)
                 .orElseGet(() -> {
@@ -161,7 +160,18 @@ public class ArticleService {
         DailyStat today = getOrCreateTodayStat(metrics);
         today.setTotal(today.getTotal() + 1);
 
-        if (!success) {
+        long now = System.currentTimeMillis();
+        metrics.setLastRunTime(now);
+
+        if (success) {
+            metrics.setStatus("success");
+            metrics.setLastSucessTime(now);
+            metrics.setErrorMessage(null); // Clear out old errors!
+        } else {
+            metrics.setStatus("failed");
+            metrics.setLastFailureTime(now);
+            metrics.setErrorMessage(errorMessage); // Save the exact error!
+
             today.setFailed(today.getFailed() + 1);
 
             String category = classifyFailure(errorMessage);
@@ -173,7 +183,7 @@ public class ArticleService {
             today.getFailureCategoryCounts().merge(category, 1, Integer::sum);
 
             FailureSample sample = new FailureSample();
-            sample.setTimestamp(System.currentTimeMillis());
+            sample.setTimestamp(now);
             sample.setCategory(category);
             sample.setMessage(errorMessage);
             sample.setUrl(feedUrl);
@@ -263,6 +273,9 @@ public class ArticleService {
                         .append(" (Avg: ").append(result.getAvgPosts7Days()).append(")\n");
                 block.append("Failures: ").append(result.getFailCount())
                         .append("/").append(result.getTotalRuns()).append("\n");
+                block.append("Last Success: ")
+                        .append(result.getLastSuccessLabel() == null ? "Unknown" : result.getLastSuccessLabel())
+                        .append("\n");
                 block.append("Primary Error: ")
                         .append(result.getPrimaryError() == null ? "-" : result.getPrimaryError()).append("\n");
                 block.append("Reasons:\n");
