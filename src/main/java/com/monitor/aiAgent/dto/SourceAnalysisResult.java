@@ -12,6 +12,9 @@ public class SourceAnalysisResult {
     private String sourceName;
     private String sourceUrl;
 
+    private String language; // e.g., "MS", "EN", "ZH"
+    private String sourceType; // e.g., "Article", "Video"
+
     private int healthScore;
     private String healthLevel; // HEALTHY / WARNING / CRITICAL
     private String alertLevel; // NORMAL / WARNING / CRITICAL

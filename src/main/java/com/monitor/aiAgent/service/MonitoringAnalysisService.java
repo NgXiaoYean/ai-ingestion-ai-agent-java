@@ -163,6 +163,8 @@ public class MonitoringAnalysisService {
         return SourceAnalysisResult.builder()
                 .sourceName(m.getSourceName())
                 .sourceUrl(m.getSourceUrl())
+                .language(m.getLanguage())
+                .sourceType(m.getSourceType())
                 .healthScore(healthScore)
                 .healthLevel(healthLevel)
                 .alertLevel(alertLevel)
