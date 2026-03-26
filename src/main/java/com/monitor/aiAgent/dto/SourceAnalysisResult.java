@@ -14,6 +14,9 @@ public class SourceAnalysisResult {
     private String language; // e.g., "MS", "EN", "ZH"
     private String sourceType; // e.g., "Article", "Video"
 
+    private String language; // e.g., "MS", "EN", "ZH"
+    private String sourceType; // e.g., "Article", "Video"
+
     private int healthScore;
     private String alertLevel; // NORMAL / WARNING / CRITICAL
 

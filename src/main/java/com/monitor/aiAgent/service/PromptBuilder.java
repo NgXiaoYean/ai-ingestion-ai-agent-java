@@ -17,6 +17,19 @@ public class PromptBuilder {
         You are an Expert AI Systems Engineer. Your job is to ANALYZE the following JSON data and provide a high-level operational report for administrators.
 
         --------------------------------------------------
+
+        IMPORTANT CONTEXT
+
+        - The backend has ALREADY filtered out healthy sources before sending this JSON.
+        - The sources[] array contains ONLY WARNING or CRITICAL sources.
+        - Do NOT say "all other sources are healthy" unless totalSources minus
+          the count of sources[] entries equals zero.
+        - Healthy sources that were filtered out should be acknowledged in Notes
+          using this format:
+          "- [X] source(s) not listed: Healthy. No action needed."
+          where X = totalSources minus the count of entries in sources[].
+
+        --------------------------------------------------
         🧠 EXPERT JUDGEMENT & CALCULATION RULES
         Before writing, perform these internal steps:
         1. DERIVE DROP PERCENT: Calculate the volume loss using (1.0 - ingestionRatio) * 100.
