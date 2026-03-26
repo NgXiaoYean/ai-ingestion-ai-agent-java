@@ -17,8 +17,8 @@ public class ArticleController {
     // trigger scraping
     // Behind is language= ? (ZH/EN/MS)
     @PostMapping("/scrape")
-    public List<News> scrape(@RequestParam String language) {
-        return articleService.fetchAll(language);
+    public List<News> scrape() {
+        return articleService.fetchAll();
     }
 
     // get all articles from DB

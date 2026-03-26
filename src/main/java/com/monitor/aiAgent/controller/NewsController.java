@@ -14,8 +14,9 @@ public class NewsController {
 
     private final NewsService newsService;
 
+    // Removed the language parameter
     @PostMapping("/scrape")
-    public List<News> scrape(@RequestParam String language) {
-        return newsService.fetchAll(language);
+    public List<News> scrape() {
+        return newsService.fetchAll();
     }
 }

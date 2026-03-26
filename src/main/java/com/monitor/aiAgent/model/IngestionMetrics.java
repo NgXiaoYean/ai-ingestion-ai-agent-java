@@ -18,6 +18,9 @@ public class IngestionMetrics {
     private String sourceName;
     private String sourceUrl;
 
+    private String language;
+    private String sourceType;
+
     private Number lastRunTime;
     private Number lastSucessTime;
     private Number lastFailureTime;

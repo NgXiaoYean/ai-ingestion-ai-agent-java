@@ -11,15 +11,15 @@ import java.util.Map;
 public class SourceAnalysisResult {
     private String sourceName;
     private String sourceUrl;
+    private String language; // e.g., "MS", "EN", "ZH"
+    private String sourceType; // e.g., "Article", "Video"
 
     private int healthScore;
-    private String healthLevel; // HEALTHY / WARNING / CRITICAL
     private String alertLevel; // NORMAL / WARNING / CRITICAL
 
     private int postsToday;
     private int avgPosts7Days;
     private double ingestionRatio;
-    private double dropPercent;
 
     private int issuePosts;
     private double issueRatio;
@@ -32,7 +32,6 @@ public class SourceAnalysisResult {
     private int totalRuns;
     private int consecutiveFailCount;
 
-    private String currentStatus;
     private String primaryError;
 
     private Long lastRunTime;
@@ -48,6 +47,6 @@ public class SourceAnalysisResult {
     private int ingestionDeduction;
     private int issueDeduction;
     private int successRateDeduction;
-    private int failHistoryDeduction;
+    private int consecutiveFailCountDeduction;
     private int moderationDeduction;
 }

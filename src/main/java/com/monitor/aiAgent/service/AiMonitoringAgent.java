@@ -22,16 +22,18 @@ public class AiMonitoringAgent {
     public void runDailyAnalysis() throws Exception {
         List<IngestionMetrics> metrics = fetchService.getTodayMetrics();
 
-        // 1. Calculate the math for ALL sources (The backend does its job)
+        // 1. Calculate the math for ALL sources
         MonitoringAnalysisReport analysisReport = analysisService.analyze(metrics);
 
-        // --- NEW DATA DIET CODE ---
-        // 2. Filter out the perfectly healthy sources to save AI tokens
+        // --- NEW DATA DIET CODE (Updated for Score + AlertLevel) ---
+        // 2. Filter: Only keep sources that are NOT perfect.
+        // We keep them if the score is < 100 OR if they have a non-normal alert level.
         List<SourceAnalysisResult> problematicSources = analysisReport.getSources().stream()
-                .filter(source -> !"HEALTHY".equalsIgnoreCase(source.getHealthLevel()))
+                .filter(source -> source.getHealthScore() < 100 || !"NORMAL".equalsIgnoreCase(source.getAlertLevel()))
                 .collect(Collectors.toList());
 
-        // 3. Overwrite the list so the AI only reads about the broken ones
+        // 3. Overwrite the list so the AI only reads about the sources needing
+        // attention
         analysisReport.setSources(problematicSources);
         // --------------------------
 

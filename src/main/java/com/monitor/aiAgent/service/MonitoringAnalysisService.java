@@ -63,15 +63,13 @@ public class MonitoringAnalysisService {
                 .totalSavedByUsers(totalSavedByUsers)
                 .mostProblematicSource(mostProblematicSource)
                 .sources(results)
-                .typeAllocation(typeAllocation)
-                .categoryAllocation(categoryAllocation)
                 .build();
     }
 
     public SourceAnalysisResult analyzeSingle(IngestionMetrics m) {
+        // 1. DATA CALCULATIONS (Keep your existing math)
         int totalRuns = 0;
         int failCount = 0;
-
         if (m.getDailyStats() != null) {
             for (DailyStat stat : m.getDailyStats()) {
                 totalRuns += stat.getTotal();
@@ -81,95 +79,76 @@ public class MonitoringAnalysisService {
 
         int successRate7Days = totalRuns <= 0 ? 100 : ((totalRuns - failCount) * 100) / totalRuns;
         int consecutiveFailCount = m.getConsecutiveFailCount();
+        double ingestionRatio = m.getAvgPosts7Days() <= 0 ? 1.0 : (double) m.getPostsToday() / m.getAvgPosts7Days();
+        double issueRatio = m.getPostsToday() <= 0 ? 0 : (double) m.getIssuePosts() / m.getPostsToday();
+        double moderationRatio = m.getPostsToday() <= 0 ? 0 : (double) m.getModeratedPosts() / m.getPostsToday();
 
-        double ingestionRatio = m.getAvgPosts7Days() <= 0 ? 1.0
-                : (double) m.getPostsToday() / m.getAvgPosts7Days();
-
-        double dropPercent = m.getAvgPosts7Days() <= 0 ? 0
-                : Math.max(0, ((double) (m.getAvgPosts7Days() - m.getPostsToday()) / m.getAvgPosts7Days()) * 100);
-
-        double issueRatio = m.getPostsToday() <= 0 ? 0
-                : (double) m.getIssuePosts() / m.getPostsToday();
-
-        double moderationRatio = m.getPostsToday() <= 0 ? 0
-                : (double) m.getModeratedPosts() / m.getPostsToday();
-
+        // 2. DEDUCTIONS (This builds the Daily Health Score)
         int ingestionDeduction = calcIngestionDeduction(ingestionRatio, m.getPostsToday(), m.getAvgPosts7Days());
         int issueDeduction = calcIssueDeduction(issueRatio);
         int successRateDeduction = calcSuccessRateDeduction(successRate7Days);
-        int failHistoryDeduction = calcFailHistoryDeduction(failCount, consecutiveFailCount);
+        int consecutiveFailCountDeduction = calcConstFailCount(consecutiveFailCount);
         int moderationDeduction = calcModerationDeduction(moderationRatio);
 
-        int healthScore = Math.max(0, 100
-                - ingestionDeduction
-                - issueDeduction
-                - successRateDeduction
-                - failHistoryDeduction
-                - moderationDeduction);
+        int healthScore = Math.max(0, 100 - ingestionDeduction - issueDeduction - successRateDeduction
+                - consecutiveFailCountDeduction - moderationDeduction);
 
+        // 3. SMART ALERT LOGIC (Immediate vs Daily)
         List<String> alertReasons = new ArrayList<>();
         String alertLevel = "NORMAL";
-        boolean noPostsUnexpected = m.getPostsToday() == 0 && m.getAvgPosts7Days() > 0;
 
-        if (successRate7Days < 50
-                || noPostsUnexpected
-                || consecutiveFailCount >= 3
-                || ingestionRatio <= 0.30) {
+        boolean isLateCheck = java.time.LocalTime.now(java.time.ZoneId.of("Asia/Kuala_Lumpur"))
+                .isAfter(java.time.LocalTime.of(12, 0));
+
+        // --- LEVEL 1: CRITICAL (Immediate Action Required) ---
+        if (consecutiveFailCount >= 3) {
             alertLevel = "CRITICAL";
-        } else if (ingestionRatio < 0.70
-                || issueRatio >= 0.30
-                || moderationRatio >= 0.30
-                || failCount >= 5
-                || "failed".equalsIgnoreCase(m.getStatus())) {
+            alertReasons.add("CRITICAL: Connection Lost (3+ fails)");
+        } else if (successRate7Days < 20) {
+            alertLevel = "CRITICAL";
+            alertReasons.add("CRITICAL: Unstable Source (Success < 20%)");
+        } else if (m.getPostsToday() == 0 && m.getAvgPosts7Days() > 5 && isLateCheck) {
+            alertLevel = "CRITICAL";
+            alertReasons.add("CRITICAL: Content Blackout (Zero articles by 2PM)");
+        }
+
+        // --- LEVEL 2: WARNING (AI Agent's Daily Watchlist) ---
+        else if (ingestionRatio < 0.50 || successRate7Days < 70) {
             alertLevel = "WARNING";
+            // AI Agent will summarize these "Quality Drops" in the nightly report.
         }
 
-        if (m.getPostsToday() == 0 && m.getAvgPosts7Days() > 0) {
-            alertReasons.add("No posts ingested today despite historical activity");
+        // --- LEVEL 3: MINOR (Daily Report Details) ---
+        else if (issueRatio >= 0.30 || failCount >= 10) {
+            alertLevel = "NORMAL"; // Keep dashboard green, but let AI see the reason
+            if (issueRatio >= 0.30)
+                alertReasons.add("INFO: High issue-post ratio (" + Math.round(issueRatio * 100) + "%)");
+            if (failCount >= 10)
+                alertReasons.add("INFO: Frequent minor network stutters");
         }
-        if (ingestionRatio < 0.70)
-            alertReasons.add("Ingestion below 70% of 7-day average");
-        if (ingestionRatio <= 0.50)
-            alertReasons.add("Ingestion dropped by 50% or more");
-        if (issueRatio >= 0.30)
-            alertReasons.add("High issue-post ratio");
-        if (moderationRatio >= 0.30)
-            alertReasons.add("High moderated-post ratio");
-        if (failCount >= 5)
-            alertReasons.add("High recent fail count");
-        if (consecutiveFailCount >= 3)
-            alertReasons.add("3 or more consecutive failures");
-        boolean latestRunFailed = m.getLastFailureTime() != null &&
-                m.getLastRunTime() != null &&
+
+        // 4. ADD ADDITIONAL CONTEXT FOR THE AI AGENT
+        // (This ensures the AI sees EVERYTHING even if alertLevel is NORMAL)
+        if (m.getPostsToday() > 0 && ingestionRatio < 0.70)
+            alertReasons.add("Context: Ingestion below 70% of average");
+
+        // Latest Run Error Check
+        boolean latestRunFailed = m.getLastFailureTime() != null && m.getLastRunTime() != null &&
                 m.getLastFailureTime().longValue() == m.getLastRunTime().longValue();
-
         if (latestRunFailed && m.getErrorMessage() != null && !m.getErrorMessage().isBlank()) {
-            // Format the time nicely for the email
-            String timeStr = "Unknown Time";
-            if (m.getLastFailureTime() != null) {
-                timeStr = java.time.LocalDateTime.ofInstant(
-                        java.time.Instant.ofEpochMilli(m.getLastFailureTime().longValue()),
-                        java.time.ZoneId.of("Asia/Kuala_Lumpur"))
-                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
-            }
-
-            alertReasons.add("Latest run failed at " + timeStr + " with error: " + m.getErrorMessage());
+            alertReasons.add("Latest attempt failed with error: " + m.getErrorMessage());
         }
-
-        String healthLevel = healthScore >= 90 ? "HEALTHY"
-                : healthScore >= 70 ? "WARNING"
-                        : "CRITICAL";
 
         return SourceAnalysisResult.builder()
                 .sourceName(m.getSourceName())
                 .sourceUrl(m.getSourceUrl())
+                .language(m.getLanguage())
+                .sourceType(m.getSourceType())
                 .healthScore(healthScore)
-                .healthLevel(healthLevel)
                 .alertLevel(alertLevel)
                 .postsToday(m.getPostsToday())
                 .avgPosts7Days(m.getAvgPosts7Days())
                 .ingestionRatio(ingestionRatio)
-                .dropPercent(dropPercent)
                 .issuePosts(m.getIssuePosts())
                 .issueRatio(issueRatio)
                 .moderatedPosts(m.getModeratedPosts())
@@ -178,28 +157,20 @@ public class MonitoringAnalysisService {
                 .failCount(failCount)
                 .totalRuns(totalRuns)
                 .consecutiveFailCount(consecutiveFailCount)
-                .currentStatus(m.getStatus())
                 .primaryError(m.getErrorMessage())
                 .lastRunTime(toLong(m.getLastRunTime()))
                 .lastSuccessTime(toLong(m.getLastSucessTime()))
                 .lastSuccessLabel(buildLastSuccessLabel(m))
-                .alertTriggered(!alertReasons.isEmpty())
+                .alertTriggered("CRITICAL".equals(alertLevel))
                 .alertReasons(alertReasons)
                 .postTypeCount(m.getPostTypeCount())
                 .savedByUsers(m.getSavedByUsers())
                 .ingestionDeduction(ingestionDeduction)
                 .issueDeduction(issueDeduction)
                 .successRateDeduction(successRateDeduction)
-                .failHistoryDeduction(failHistoryDeduction)
+                .consecutiveFailCountDeduction(consecutiveFailCountDeduction)
                 .moderationDeduction(moderationDeduction)
                 .build();
-    }
-
-    private int calculateSuccessRate7Days(int totalRuns7Days, int failedRuns7Days) {
-        if (totalRuns7Days <= 0)
-            return 100;
-        int successRuns = Math.max(0, totalRuns7Days - failedRuns7Days);
-        return (successRuns * 100) / totalRuns7Days;
     }
 
     private int calcIngestionDeduction(double ingestionRatio, int postsToday, int avgPosts7Days) {
@@ -252,18 +223,10 @@ public class MonitoringAnalysisService {
         return 0;
     }
 
-    private int calcFailHistoryDeduction(int failCount, int consecutiveFailCount) {
+    private int calcConstFailCount(int consecutiveFailCount) {
         if (consecutiveFailCount >= 3)
             return 30;
-        if (failCount >= 20)
-            return 30;
-        if (failCount >= 15)
-            return 25;
-        if (failCount >= 10)
-            return 20;
-        if (failCount >= 5)
-            return 15;
-        return 0;
+        return 0; // Ignore anything less than 15!
     }
 
     private int calcModerationDeduction(double moderationRatio) {

@@ -1,6 +1,8 @@
 package com.monitor.aiAgent.service;
 
 import com.monitor.aiAgent.config.NewsConfig;
+import com.monitor.aiAgent.dto.ProbeResult;
+import com.monitor.aiAgent.dto.SourceAnalysisResult;
 import com.monitor.aiAgent.model.DailyStat;
 import com.monitor.aiAgent.model.FailureSample;
 import com.monitor.aiAgent.model.IngestionMetrics;
@@ -25,6 +27,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 
@@ -36,18 +39,19 @@ public class NewsService {
     private final ArticleRepository newsRepository;
     private final MetricsRepository metricsRepository;
     private final FeedNormalizer normalizer;
+    private final MonitoringAnalysisService monitoringAnalysisService;
+    private final EmailService emailService;
+    private final FeedProbeService feedProbeService; // <-- ADDED THIS
 
-    public List<News> fetchAll(String language) {
+    public List<News> fetchAll() {
         List<News> allNews = new ArrayList<>();
 
         for (NewsConfig.Source source : newsConfig.getSources()) {
             for (NewsConfig.Feed feed : source.getFeeds()) {
-                if (!feed.getLanguage().equalsIgnoreCase(language)) {
-                    continue;
-                }
 
                 boolean feedSuccess = false;
                 String feedError = null;
+                ProbeResult probeResult = null;
 
                 try {
                     HttpClient client = HttpClient.newBuilder()
@@ -56,6 +60,7 @@ public class NewsService {
 
                     HttpRequest request = HttpRequest.newBuilder()
                             .uri(URI.create(feed.getUrl()))
+                            .timeout(Duration.ofSeconds(15))
                             .header("User-Agent", "Mozilla/5.0")
                             .GET()
                             .build();
@@ -75,7 +80,8 @@ public class NewsService {
                         } else {
                             for (SyndEntry entry : rss.getEntries()) {
                                 News news = normalizer.normalize(entry, source, feed);
-                                if (news == null) continue;
+                                if (news == null)
+                                    continue;
 
                                 try {
                                     newsRepository.save(news);
@@ -88,9 +94,18 @@ public class NewsService {
                         }
                     }
 
+                } catch (java.net.http.HttpTimeoutException e) {
+                    feedError = "TIMEOUT";
                 } catch (Exception e) {
                     feedError = e.getMessage();
                 } finally {
+                    // --- ADDED PROBE LOGIC FOR FAILURES ---
+                    if (!feedSuccess) {
+                        probeResult = feedProbeService.probe(source.getName(), feed.getUrl());
+                        System.out.println("Probe result: " + probeResult);
+                    }
+                    // --------------------------------------
+
                     recordFeedRun(source.getName(), feed.getUrl(), feedSuccess, feedError);
                 }
             }
@@ -99,6 +114,7 @@ public class NewsService {
         return allNews;
     }
 
+    // --- FULLY UPDATED TO MATCH ARTICLE SERVICE ---
     private void recordFeedRun(String sourceName, String feedUrl, boolean success, String errorMessage) {
         IngestionMetrics metrics = metricsRepository.findBySourceName(sourceName)
                 .orElseGet(() -> {
@@ -109,19 +125,40 @@ public class NewsService {
                     return m;
                 });
 
+        if (metrics.getDailyStats() == null) {
+            metrics.setDailyStats(new ArrayList<>());
+        }
+        if (metrics.getRecentFailures() == null) {
+            metrics.setRecentFailures(new ArrayList<>());
+        }
+
         DailyStat today = getOrCreateTodayStat(metrics);
         today.setTotal(today.getTotal() + 1);
 
-        if (!success) {
+        long now = System.currentTimeMillis();
+        metrics.setLastRunTime(now);
+
+        if (success) {
+            metrics.setStatus("success");
+            metrics.setLastSucessTime(now);
+            metrics.setErrorMessage(null); // Clear out old errors
+        } else {
+            metrics.setStatus("failed");
+            metrics.setLastFailureTime(now);
+            metrics.setErrorMessage(errorMessage); // Save the exact error
+
             today.setFailed(today.getFailed() + 1);
+
             String category = classifyFailure(errorMessage);
+
             if (today.getFailureCategoryCounts() == null) {
                 today.setFailureCategoryCounts(new HashMap<>());
             }
+
             today.getFailureCategoryCounts().merge(category, 1, Integer::sum);
 
             FailureSample sample = new FailureSample();
-            sample.setTimestamp(System.currentTimeMillis());
+            sample.setTimestamp(now);
             sample.setCategory(category);
             sample.setMessage(errorMessage);
             sample.setUrl(feedUrl);
@@ -133,6 +170,9 @@ public class NewsService {
         }
 
         today.setSuccess(today.getTotal() - today.getFailed());
+
+        trimToLast7Days(metrics.getDailyStats());
+
         metricsRepository.save(metrics);
     }
 
@@ -140,6 +180,9 @@ public class NewsService {
         String todayStr = LocalDate.now(ZoneId.of("Asia/Kuala_Lumpur")).toString();
         for (DailyStat stat : metrics.getDailyStats()) {
             if (todayStr.equals(stat.getDate())) {
+                if (stat.getFailureCategoryCounts() == null) {
+                    stat.setFailureCategoryCounts(new HashMap<>());
+                }
                 return stat;
             }
         }
@@ -153,16 +196,78 @@ public class NewsService {
         return stat;
     }
 
+    // --- ADDED THIS TO KEEP THE DATABASE CLEAN ---
+    private void trimToLast7Days(List<DailyStat> stats) {
+        stats.sort(Comparator.comparing(DailyStat::getDate));
+        while (stats.size() > 7) {
+            stats.remove(0);
+        }
+    }
+
     private String classifyFailure(String errorMessage) {
-        if (errorMessage == null || errorMessage.isBlank()) return "UNKNOWN";
+        if (errorMessage == null || errorMessage.isBlank())
+            return "UNKNOWN";
         String msg = errorMessage.toLowerCase();
-        if (msg.contains("connection reset")) return "CONNECTION_RESET";
-        if (msg.contains("timed out") || msg.contains("timeout")) return "TIMEOUT";
-        if (msg.contains("403")) return "HTTP_403";
-        if (msg.contains("404")) return "HTTP_404";
-        if (msg.contains("500")) return "HTTP_500";
-        if (msg.contains("no entries")) return "EMPTY_FEED";
-        if (msg.contains("xml")) return "XML_PARSE_ERROR";
+        if (msg.contains("connection reset"))
+            return "CONNECTION_RESET";
+        if (msg.contains("timed out") || msg.contains("timeout"))
+            return "TIMEOUT";
+        if (msg.contains("403"))
+            return "HTTP_403";
+        if (msg.contains("404"))
+            return "HTTP_404";
+        if (msg.contains("500"))
+            return "HTTP_500";
+        if (msg.contains("no entries"))
+            return "EMPTY_FEED";
+        if (msg.contains("xml"))
+            return "XML_PARSE_ERROR";
         return "UNKNOWN";
+    }
+
+    public void sendCombinedCriticalAlert() {
+        List<IngestionMetrics> currentMetrics = metricsRepository.findAll();
+        List<String> criticalBlocks = new ArrayList<>();
+
+        for (IngestionMetrics metrics : currentMetrics) {
+            SourceAnalysisResult result = monitoringAnalysisService.analyzeSingle(metrics);
+
+            if ("CRITICAL".equalsIgnoreCase(result.getAlertLevel())) {
+                StringBuilder block = new StringBuilder();
+                block.append("Source: ").append(result.getSourceName()).append("\n");
+                block.append("Health Score: ").append(result.getHealthScore()).append("/100\n");
+                block.append("Success Rate (7d): ").append(result.getSuccessRate7Days()).append("%\n");
+                block.append("Posts Today: ").append(result.getPostsToday())
+                        .append(" (Avg: ").append(result.getAvgPosts7Days()).append(")\n");
+                block.append("Failures: ").append(result.getFailCount())
+                        .append("/").append(result.getTotalRuns()).append("\n");
+                block.append("Last Success: ")
+                        .append(result.getLastSuccessLabel() == null ? "Unknown" : result.getLastSuccessLabel())
+                        .append("\n");
+                block.append("Primary Error: ")
+                        .append(result.getPrimaryError() == null ? "-" : result.getPrimaryError()).append("\n");
+                block.append("Reasons:\n");
+
+                for (String reason : result.getAlertReasons()) {
+                    block.append("- ").append(reason).append("\n");
+                }
+
+                criticalBlocks.add(block.toString());
+            }
+        }
+
+        if (!criticalBlocks.isEmpty()) {
+            StringBuilder body = new StringBuilder();
+            body.append("🚨 Combined Critical Ingestion Alert\n\n");
+            body.append("Critical sources detected: ").append(criticalBlocks.size()).append("\n\n");
+
+            for (String block : criticalBlocks) {
+                body.append(block).append("\n");
+            }
+
+            emailService.sendAlert(
+                    "🚨 Critical Ingestion Alert - " + criticalBlocks.size() + " Source(s)",
+                    body.toString());
+        }
     }
 }

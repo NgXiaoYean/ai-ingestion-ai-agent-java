@@ -55,7 +55,7 @@ public class ArticleService {
         return newsRepository.findAll();
     }
 
-    public List<News> fetchAll(String language) {
+    public List<News> fetchAll() {
         System.out.println("Connected DB: " + mongoTemplate.getDb().getName());
         System.out.println("Collection: " + mongoTemplate.getCollectionName(News.class));
 
@@ -63,14 +63,12 @@ public class ArticleService {
 
         for (ArticleConfig.Source source : articleConfig.getSources()) {
             for (ArticleConfig.Feed feed : source.getFeeds()) {
-                if (!feed.getLanguage().equalsIgnoreCase(language)) {
-                    continue;
-                }
 
                 boolean feedSuccess = false;
                 String feedError = null;
                 ProbeResult probeResult = null;
-
+                int postsThisRun = 0;
+                int issuesThisRun = 0;
                 try {
                     HttpClient client = HttpClient.newBuilder()
                             .connectTimeout(Duration.ofSeconds(10))
@@ -78,6 +76,7 @@ public class ArticleService {
 
                     HttpRequest request = HttpRequest.newBuilder()
                             .uri(URI.create(feed.getUrl()))
+                            .timeout(Duration.ofSeconds(15))
                             .header("User-Agent", "Mozilla/5.0")
                             .GET()
                             .build();
@@ -89,23 +88,34 @@ public class ArticleService {
                         feedError = "HTTP_" + response.statusCode();
                         System.out.println("Skipping feed (status != 200): " + feed.getUrl());
                     } else {
+                        // THIS IS WHAT WAS MISSING! Creating the rss and entryCount variables:
                         SyndFeedInput input = new SyndFeedInput();
                         SyndFeed rss = input.build(new XmlReader(response.body()));
+                        int entryCount = rss.getEntries() == null ? 0 : rss.getEntries().size();
 
                         System.out.println("Feed: " + feed.getUrl());
-                        int entryCount = rss.getEntries() == null ? 0 : rss.getEntries().size();
-                        System.out.println("Feed: " + feed.getUrl());
                         System.out.println("Entries found: " + entryCount);
+
                         if (entryCount == 0) {
                             feedError = "No entries returned";
                         } else {
                             for (SyndEntry entry : rss.getEntries()) {
-                                System.out.println("Entry title: " + entry.getTitle());
-
                                 News news = normalizer.normalize(entry, source, feed);
                                 if (news == null) {
-                                    System.out.println("Skipped entry (null)");
                                     continue;
+                                }
+
+                                // We successfully downloaded a post!
+                                postsThisRun++;
+
+                                // CHECK FOR ISSUES (Missing Thumbnail or Description)
+                                boolean missingImage = (news.getImageUrl() == null
+                                        || news.getImageUrl().trim().isEmpty());
+                                boolean missingDescription = (news.getContent() == null
+                                        || news.getContent().trim().isEmpty());
+
+                                if (missingImage || missingDescription) {
+                                    issuesThisRun++; // Flag it as an issue post!
                                 }
 
                                 try {
@@ -116,11 +126,11 @@ public class ArticleService {
                                     System.out.println("Duplicate or error saving");
                                 }
                             }
-
                             feedSuccess = true;
                         }
                     }
-
+                } catch (java.net.http.HttpTimeoutException e) {
+                    feedError = "TIMEOUT";
                 } catch (Exception e) {
                     feedError = e.getMessage();
                     System.out.println("RSS error: " + feed.getUrl());
@@ -132,7 +142,7 @@ public class ArticleService {
                         System.out.println("Probe result: " + probeResult);
                     }
 
-                    recordFeedRun(source.getName(), feed.getUrl(), feedSuccess, feedError);
+                    recordFeedRun(source.getName(), feed.getUrl(), feedSuccess, feedError, postsThisRun, issuesThisRun);
                 }
             }
         }
@@ -140,7 +150,8 @@ public class ArticleService {
         return allNews;
     }
 
-    private void recordFeedRun(String sourceName, String feedUrl, boolean success, String errorMessage) {
+    private void recordFeedRun(String sourceName, String feedUrl, boolean success, String errorMessage,
+            int postsThisRun, int issuesThisRun) {
         IngestionMetrics metrics = metricsRepository.findBySourceName(sourceName)
                 .orElseGet(() -> {
                     IngestionMetrics m = new IngestionMetrics();
@@ -167,6 +178,8 @@ public class ArticleService {
             metrics.setStatus("success");
             metrics.setLastSucessTime(now);
             metrics.setErrorMessage(null); // Clear out old errors!
+            metrics.setPostsToday(metrics.getPostsToday() + postsThisRun);
+            metrics.setIssuePosts(metrics.getIssuePosts() + issuesThisRun);
         } else {
             metrics.setStatus("failed");
             metrics.setLastFailureTime(now);

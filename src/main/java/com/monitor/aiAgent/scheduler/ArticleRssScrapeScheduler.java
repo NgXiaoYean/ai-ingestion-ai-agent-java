@@ -19,9 +19,7 @@ public class ArticleRssScrapeScheduler {
     public void scrapeArticles() {
         log.info("Starting RSS scrape");
 
-        articleService.fetchAll("EN");
-        articleService.fetchAll("MS");
-        articleService.fetchAll("ZH");
+        articleService.fetchAll();
 
         articleService.sendCombinedCriticalAlert();
 

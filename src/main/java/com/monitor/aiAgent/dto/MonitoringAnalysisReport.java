@@ -12,13 +12,11 @@ public class MonitoringAnalysisReport {
     private int totalSources;
     private int totalSourcesWithIssues;
     private double averageSuccessRate;
-    private int totalPostsToday;
+    private long totalPostsToday;
+    private String mostProblematicSource;
+    private Map<String, Long> typeAllocation;
     private int totalSavedByUsers;
 
-    private String mostProblematicSource;
-
+    // The list of cleaned source results
     private List<SourceAnalysisResult> sources;
-
-    private Map<String, Integer> typeAllocation;
-    private Map<String, Integer> categoryAllocation;
 }
