@@ -81,14 +81,14 @@ public class MonitoringAnalysisService {
         int consecutiveFailCount = m.getConsecutiveFailCount();
         double ingestionRatio = m.getAvgPosts7Days() <= 0 ? 1.0 : (double) m.getPostsToday() / m.getAvgPosts7Days();
         double issueRatio = m.getPostsToday() <= 0 ? 0 : (double) m.getIssuePosts() / m.getPostsToday();
-        double moderationRatio = m.getPostsToday() <= 0 ? 0 : (double) m.getModeratedPosts() / m.getPostsToday();
-
+        double highModRatio = m.getPostsToday() <= 0 ? 0 : (double) m.getHighModeratedPosts() / m.getPostsToday();
+        double mediumModRatio = m.getPostsToday() <= 0 ? 0 : (double) m.getMediumModeratedPosts() / m.getPostsToday();
         // 2. DEDUCTIONS (This builds the Daily Health Score)
         int ingestionDeduction = calcIngestionDeduction(ingestionRatio, m.getPostsToday(), m.getAvgPosts7Days());
         int issueDeduction = calcIssueDeduction(issueRatio);
         int successRateDeduction = calcSuccessRateDeduction(successRate7Days);
         int consecutiveFailCountDeduction = calcConstFailCount(consecutiveFailCount);
-        int moderationDeduction = calcModerationDeduction(moderationRatio);
+        int moderationDeduction = calcModerationDeduction(highModRatio, mediumModRatio);
 
         int healthScore = Math.max(0, 100 - ingestionDeduction - issueDeduction - successRateDeduction
                 - consecutiveFailCountDeduction - moderationDeduction);
@@ -151,8 +151,10 @@ public class MonitoringAnalysisService {
                 .ingestionRatio(ingestionRatio)
                 .issuePosts(m.getIssuePosts())
                 .issueRatio(issueRatio)
-                .moderatedPosts(m.getModeratedPosts())
-                .moderationRatio(moderationRatio)
+                .highModeratedPosts(m.getHighModeratedPosts())
+                .highModRatio(highModRatio)
+                .mediumModeratedPosts(m.getMediumModeratedPosts())
+                .mediumModRatio(mediumModRatio)
                 .successRate7Days(successRate7Days)
                 .failCount(failCount)
                 .totalRuns(totalRuns)
@@ -229,14 +231,30 @@ public class MonitoringAnalysisService {
         return 0; // Ignore anything less than 15!
     }
 
-    private int calcModerationDeduction(double moderationRatio) {
-        if (moderationRatio >= 0.05)
-            return 10;
-        if (moderationRatio >= 0.03)
-            return 7;
-        if (moderationRatio >= 0.01)
-            return 5;
-        return 0;
+    private int calcModerationDeduction(double highModRatio, double mediumModRatio) {
+        int deduction = 0;
+
+        // --- HIGH MODERATION (Highly sensitive content: Heavier Penalty) ---
+        if (highModRatio >= 0.50) {
+            deduction += 20; // 50%+ high moderation is severely penalized
+        } else if (highModRatio >= 0.30) {
+            deduction += 15;
+        } else if (highModRatio >= 0.10) {
+            deduction += 10;
+        }
+
+        // --- MEDIUM MODERATION (Standard filtering: Normal Penalty) ---
+        if (mediumModRatio >= 0.50) {
+            deduction += 10;
+        } else if (mediumModRatio >= 0.30) {
+            deduction += 7;
+        } else if (mediumModRatio >= 0.10) {
+            deduction += 5;
+        }
+
+        // Cap the deduction so moderation alone doesn't artificially break the score
+        // below 0
+        return Math.min(deduction, 50);
     }
 
     private Long toLong(Number value) {

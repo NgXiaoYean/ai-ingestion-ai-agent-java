@@ -14,9 +14,6 @@ public class SourceAnalysisResult {
     private String language; // e.g., "MS", "EN", "ZH"
     private String sourceType; // e.g., "Article", "Video"
 
-    private String language; // e.g., "MS", "EN", "ZH"
-    private String sourceType; // e.g., "Article", "Video"
-
     private int healthScore;
     private String alertLevel; // NORMAL / WARNING / CRITICAL
 
@@ -27,8 +24,11 @@ public class SourceAnalysisResult {
     private int issuePosts;
     private double issueRatio;
 
-    private int moderatedPosts;
-    private double moderationRatio;
+    private int highModeratedPosts;
+    private double highModRatio;
+
+    private int mediumModeratedPosts;
+    private double mediumModRatio;
 
     private int successRate7Days;
     private int failCount;

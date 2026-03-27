@@ -40,7 +40,11 @@ public class IngestionMetrics {
     private int successRate7Days;
 
     private int issuePosts;
-    private int moderatedPosts;
+    private int highModeratedPosts;
+    private double highModRatio;
+
+    private int mediumModeratedPosts;
+    private double mediumModRatio;
     private int savedByUsers;
     private Map<String, Integer> postTypeCount;
 
