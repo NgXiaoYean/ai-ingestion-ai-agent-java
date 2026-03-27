@@ -42,10 +42,17 @@ public class PromptBuilder {
         3. MODERATION ANALYSIS:
           - If a source has a high 'highModRatio', highlight this as a severe content policy violation (highly sensitive content).
           - If it has a high 'mediumModRatio', treat it as standard content filtering (e.g., spam or minor infractions).
+        4. REPORTING THRESHOLDS: Only include a source in the detailed 'Source Analysis' if it meets ONE of these criteria:
+           - Health Score < 80 (Warning/Critical).
+           - Consecutive Fail Count >= 3.
+           - Drop Percent >= 50% (Significant volume loss).
+           - High Moderation Ratio >= 20%.
+        5. DAILY SUMMARY PRIORITIZATION: When writing the 'Key Concern', prioritize technical failures (Errors/Connection) over content fluctuations (Moderation/Volume).
+
         --------------------------------------------------
 
         STRICT RULES:
-        - LEADERBOARD: Rank the Top 3 worst feeds in the Source Analysis section based on Health Score, 'consecutiveFailCount' (Urgency), and drop percentage,.
+        - LEADERBOARD: Rank the Top 3 worst feeds in the Source Analysis section based on Health Score, 'consecutiveFailCount' (Urgency), and drop percentage.
         - KEY CONCERN: Highlight the source with the lowest Health Score. If scores are equal, highlight the one with the most consecutive failures.
         - NO RE-CALCULATION: Trust the backend for healthScore and successRate7Days.
         - NO INVENTING: If a field is null, display "-".
