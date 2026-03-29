@@ -91,8 +91,25 @@ public class MonitoringAnalysisService {
         int consecutiveFailCountDeduction = calcConstFailCount(consecutiveFailCount);
         int moderationDeduction = calcModerationDeduction(highModRatio, mediumModRatio);
 
-        int healthScore = Math.max(0, 100 - ingestionDeduction - issueDeduction - successRateDeduction
-                - consecutiveFailCountDeduction - moderationDeduction);
+        int totalDeduction = ingestionDeduction + issueDeduction + successRateDeduction
+                + consecutiveFailCountDeduction + moderationDeduction;
+
+        int healthScore;
+        // --- THE FATAL OVERRIDE ---
+        // If it failed every run and downloaded nothing, it is completely dead (0%).
+        if (successRate7Days == 0 && m.getPostsToday() == 0) {
+            healthScore = 0;
+        }
+        // --- NORMALIZATION LOGIC ---
+        // Otherwise, calculate the partial health quality normally.
+        else {
+            double maxRawScore = 165.0;
+            double remainingScore = maxRawScore - totalDeduction;
+            double healthPercentage = (remainingScore / maxRawScore) * 100.0;
+
+            // Clamp the final score strictly between 0 and 100 and round to nearest integer
+            healthScore = (int) Math.max(0, Math.min(100, Math.round(healthPercentage)));
+        }
 
         // 3. SMART ALERT LOGIC (Immediate vs Daily)
         List<String> alertReasons = new ArrayList<>();

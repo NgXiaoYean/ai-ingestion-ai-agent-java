@@ -17,9 +17,11 @@ public class PromptBuilder {
         Role: Expert AI Systems Engineer. Analyze the COMPACT JSON to output an operational report.
 
         📊 SCHEMA (Positional Arrays in 'problemSources'):
-        [0] sourceName, [1] healthScore, [2] alertLevel, [3] postsToday, [4] avgPosts7Days,
+        [0] sourceName, [1] normalizedHealthPct, [2] alertLevel, [3] postsToday, [4] avgPosts7Days,
         [5] ingestionRatio, [6] successRate7Days, [7] consecutiveFailCount, [8] primaryError,
         [9] highModRatio, [10] mediumModRatio, [11] sourceType
+
+        ==================================================
 
         🧠 EXPERT AUTONOMY & GUIDELINES:
         You are a senior engineer. The rules below are your baseline, but you MUST use your own technical intuition. If you spot a critical anomaly, a cascading failure, or a better troubleshooting step not explicitly listed here, use your judgment to report it.
@@ -30,12 +32,21 @@ public class PromptBuilder {
            - [11] in ('NEWS', 'NEWSVIDEO') -> "CRITICAL: Stealth Block / Layout Change."
         3. MODERATION: [9] >= 0.20 -> Severe violation. [10] >= 0.30 -> Standard filtering.
         4. THRESHOLDS: Detail a source ONLY IF: [1] < 80, OR [7] >= 3, OR Drop >= 50%, OR [9] >= 0.20 (Or if your expert judgment deems it critical).
-        5. PRIORITIZE: Technical errors > Content fluctuations.
-        6. NO INVENTING: If field is null, display "-". Trust backend math.
+        5. HEALTH METRIC: [1] is a normalized health percentage (0-100%). 100% means zero anomalies. Lower percentages indicate compounded system or ingestion errors.
+        6. PRIORITIZE: Technical errors > Content fluctuations.
+        7. NO INVENTING: If field is null, display "-". Trust backend math.
 
-        📖 SCOPE & ACTION DEFINITIONS (Apply your judgment):
+        ==================================================
+
+        📖 SCOPE DEFINITIONS (Apply your judgment):
         - Scope: ISOLATED (1 source), GROUPED (2-5 shared trait), BROAD (many), SYSTEM-WIDE (almost all).
-        - Action: RETRY (glitch), MONITOR (flowing but low score), WARNING (drop), CRITICAL (broken), ESCALATE (system-wide).
+
+        📖 ACTION MATRIX (Apply your judgment):
+        - RETRY: The error looks like a temporary network glitch or timeout.
+        - MONITOR: The health score is slightly low, but data is still flowing. No immediate action needed.
+        - WARNING: Clear drop in quality or volume; requires operations review today.
+        - CRITICAL: The source is broken, blocked (e.g. PKIX, 403), or empty. Requires immediate technical fix.
+        - ESCALATE: Multiple sources are failing with the exact same error (System-wide pattern).
 
         ==================================================
         OUTPUT FORMAT (STRICT MARKDOWN)
@@ -43,7 +54,7 @@ public class PromptBuilder {
         **📊 Daily Ingestion Report**
 
         **Overall Status**: [Your Judgement: HEALTHY / WARNING / CRITICAL]
-        **Sources with Issues**: [summary.issues] / [summary.totalSources]
+        **Impacted Sources**: [summary.issues] / [summary.totalSources]
         **Critical Sources**: [Count where [1] < 70 or [2] == 'CRITICAL']
         **Total Posts Today**: [summary.totalPostsToday]
         **Avg Success Rate (7d)**: [summary.avgSuccessRate]%
@@ -59,10 +70,10 @@ public class PromptBuilder {
 
         ---
         **📈 Source Analysis (Problematic Only)**
-        [Rank Top 3 worst feeds ordered by your technical assessment of their severity]
+        [Rank Top 3 worst SOURCES ordered by technical assessment of their severity. DO NOT use the word "feed"]
 
         **📛 [0]**
-        **Alert Level**: [2] | **Health Score**: **[1]/100**
+        **Alert Level**: [2] | **Health**: **[1]%**
         **Stats**: [3] posts (Avg: [4]) | **Drop**: [XX]%
         **Primary Error**: [8] (Translate raw log to human terms)
 

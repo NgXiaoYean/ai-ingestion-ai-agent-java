@@ -17,7 +17,7 @@ public class ImmediateAlertService {
         StringBuilder body = new StringBuilder();
         body.append("🔴 Critical ingestion issue detected\n\n");
         body.append("Source: ").append(result.getSourceName()).append("\n");
-        body.append("Health Score: ").append(result.getHealthScore()).append("/100\n");
+        body.append("Health: ").append(result.getHealthScore()).append("%\n");
         body.append("Success Rate (7d): ").append(result.getSuccessRate7Days()).append("%\n");
         body.append("Posts Today: ").append(result.getPostsToday()).append(" (Avg: ").append(result.getAvgPosts7Days())
                 .append(")\n");

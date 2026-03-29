@@ -280,7 +280,7 @@ public class ArticleService {
             if ("CRITICAL".equalsIgnoreCase(result.getAlertLevel())) {
                 StringBuilder block = new StringBuilder();
                 block.append("Source: ").append(result.getSourceName()).append("\n");
-                block.append("Health Score: ").append(result.getHealthScore()).append("/100\n");
+                block.append("Health: ").append(result.getHealthScore()).append("%\n");
                 block.append("Success Rate (7d): ").append(result.getSuccessRate7Days()).append("%\n");
                 block.append("Posts Today: ").append(result.getPostsToday())
                         .append(" (Avg: ").append(result.getAvgPosts7Days()).append(")\n");
