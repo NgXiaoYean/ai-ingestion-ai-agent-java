@@ -9,6 +9,5 @@ import java.util.Map;
 @Builder
 public class CompactMonitoringReport {
     private Map<String, Object> summary;
-    private List<CompactSourceResult> problemSources;
-    private List<CompactSourceResult> sources;
+    private List<Object[]> problemSources;
 }

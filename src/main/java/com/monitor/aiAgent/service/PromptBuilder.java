@@ -3,142 +3,96 @@ package com.monitor.aiAgent.service;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.monitor.aiAgent.dto.MonitoringAnalysisReport;
+import com.monitor.aiAgent.dto.CompactMonitoringReport;
 
 @Service
 public class PromptBuilder {
 
   private final ObjectMapper mapper = new ObjectMapper();
 
-  public String buildMonitoringPrompt(MonitoringAnalysisReport report) throws Exception {
-    String json = mapper.writeValueAsString(report);
+  public String buildMonitoringPrompt(CompactMonitoringReport report) throws Exception {
+    String reportJson = mapper.writeValueAsString(report);
 
     return """
-        You are an Expert AI Systems Engineer. Your job is to ANALYZE the following JSON data and provide a high-level operational report for administrators.
+        Role: Expert AI Systems Engineer. Analyze the COMPACT JSON to output an operational report.
 
-        --------------------------------------------------
+        📊 SCHEMA (Positional Arrays in 'problemSources'):
+        [0] sourceName, [1] healthScore, [2] alertLevel, [3] postsToday, [4] avgPosts7Days,
+        [5] ingestionRatio, [6] successRate7Days, [7] consecutiveFailCount, [8] primaryError,
+        [9] highModRatio, [10] mediumModRatio, [11] sourceType
 
-        IMPORTANT CONTEXT
+        🧠 EXPERT AUTONOMY & GUIDELINES:
+        You are a senior engineer. The rules below are your baseline, but you MUST use your own technical intuition. If you spot a critical anomaly, a cascading failure, or a better troubleshooting step not explicitly listed here, use your judgment to report it.
 
-        - The backend has ALREADY filtered out healthy sources before sending this JSON.
-        - The sources[] array contains ONLY WARNING or CRITICAL sources.
-        - Do NOT say "all other sources are healthy" unless totalSources minus
-          the count of sources[] entries equals zero.
-        - Healthy sources that were filtered out should be acknowledged in Notes
-          using this format:
-          "- [X] source(s) not listed: Healthy. No action needed."
-          where X = totalSources minus the count of entries in sources[].
+        1. DROP %: Calculate as (1.0 - [5]) * 100.
+        2. SILENT DEGRADATION: If [5] < 0.5 & [8] is null:
+           - [11] in ('ARTICLE', 'ARTICLEVIDEO') -> "Normal: Creator inactive today."
+           - [11] in ('NEWS', 'NEWSVIDEO') -> "CRITICAL: Stealth Block / Layout Change."
+        3. MODERATION: [9] >= 0.20 -> Severe violation. [10] >= 0.30 -> Standard filtering.
+        4. THRESHOLDS: Detail a source ONLY IF: [1] < 80, OR [7] >= 3, OR Drop >= 50%, OR [9] >= 0.20 (Or if your expert judgment deems it critical).
+        5. PRIORITIZE: Technical errors > Content fluctuations.
+        6. NO INVENTING: If field is null, display "-". Trust backend math.
 
-        --------------------------------------------------
+        📖 SCOPE & ACTION DEFINITIONS (Apply your judgment):
+        - Scope: ISOLATED (1 source), GROUPED (2-5 shared trait), BROAD (many), SYSTEM-WIDE (almost all).
+        - Action: RETRY (glitch), MONITOR (flowing but low score), WARNING (drop), CRITICAL (broken), ESCALATE (system-wide).
 
-        🧠 EXPERT JUDGEMENT & CALCULATION RULES
-
-        Before writing, perform these internal steps:
-        1. DERIVE DROP PERCENT: Calculate the volume loss using (1.0 - ingestionRatio) * 100.
-           - Example: 0.20 ratio = 80% drop. Report this as a percentage for readability.
-        2. SILENT DEGRADATION: If ingestionRatio is low (< 0.5) but primaryError is null, check 'sourceType'.
-           - If it is 'Article' or 'Video', judge this as "No posts posted by creator today".
-           - If it is 'News', judge this as "Potential upstream layout change or stealth block".
-        3. MODERATION ANALYSIS:
-          - If a source has a high 'highModRatio', highlight this as a severe content policy violation (highly sensitive content).
-          - If it has a high 'mediumModRatio', treat it as standard content filtering (e.g., spam or minor infractions).
-        4. REPORTING THRESHOLDS: Only include a source in the detailed 'Source Analysis' if it meets ONE of these criteria:
-           - Health Score < 80 (Warning/Critical).
-           - Consecutive Fail Count >= 3.
-           - Drop Percent >= 50% (Significant volume loss).
-           - High Moderation Ratio >= 20%.
-        5. DAILY SUMMARY PRIORITIZATION: When writing the 'Key Concern', prioritize technical failures (Errors/Connection) over content fluctuations (Moderation/Volume).
-
-        --------------------------------------------------
-
-        STRICT RULES:
-        - LEADERBOARD: Rank the Top 3 worst feeds in the Source Analysis section based on Health Score, 'consecutiveFailCount' (Urgency), and drop percentage.
-        - KEY CONCERN: Highlight the source with the lowest Health Score. If scores are equal, highlight the one with the most consecutive failures.
-        - NO RE-CALCULATION: Trust the backend for healthScore and successRate7Days.
-        - NO INVENTING: If a field is null, display "-".
-
-        JSON FIELD REFERENCE:
-        - ingestionRatio: Use this to calculate and report "Drop %".
-        - healthScore: 0-100 (90+ Healthy, 70-89 Warning, <70 Critical).
-        - alertReasons: The human-readable explanations for score deductions.
-        - primaryError: Raw technical log. Translate this into human terms. Show both technical log and human terms error. (e.g., "403" -> Access Blocked).
-
-        --------------------------------------------------
-        📖 DEFINITIONS & GUIDELINES (Use as a baseline, but apply your own expert judgment):
-
-        Pattern Scope Guidelines:
-        - ISOLATED: Exactly 1 source has a CRITICAL or WARNING issue.
-        - GROUPED: 2–5 sources have issues AND share a trait (e.g., Same Language, Error, or Type).
-        - BROAD: Many sources across different languages/types are failing (but not 100%).
-        - SYSTEM-WIDE: Nearly all sources failing; indicates total network/database outage.
-
-        Decision Guidelines:
-        - RETRY: Temporary "glitch" (e.g., a single Timeout).
-        - MONITOR: Health score is slightly low, but data is flowing. No immediate action.
-        - WARNING: Clear drop in quality or volume; human review needed today.
-        - CRITICAL: Source is broken or totally empty; needs immediate fix.
-        - ESCALATE: System-wide failure, or a "Grouped/Broad" pattern is detected.
-        --------------------------------------------------
-        OUTPUT FORMAT (STRICT)
+        ==================================================
+        OUTPUT FORMAT (STRICT MARKDOWN)
 
         **📊 Daily Ingestion Report**
 
         **Overall Status**: [Your Judgement: HEALTHY / WARNING / CRITICAL]
-        **Sources with Issues**: [totalSourcesWithIssues] / [totalSources]
-        **Critical Sources**: [Count of sources with healthScore < 70 or alertLevel=CRITICAL]
-        **Total Posts Today**: [totalPostsToday]
-        **Avg Success Rate (7d)**: [averageSuccessRate]%
+        **Sources with Issues**: [summary.issues] / [summary.totalSources]
+        **Critical Sources**: [Count where [1] < 70 or [2] == 'CRITICAL']
+        **Total Posts Today**: [summary.totalPostsToday]
+        **Avg Success Rate (7d)**: [summary.avgSuccessRate]%
 
         **Key Concern**:
-        - [1-2 sentence executive summary. Highlight the highest impact failure based on savedByUsers.]
+        - [1-2 sentences highlighting your primary technical concern based on the data.]
 
-        --------------------------------------------------
+        ---
         **🔎 System Insight**
-
         **Pattern Scope**: [Isolated / Grouped / Broad / System-wide]
         **Category**: [e.g., Ingestion Drop / SSL Error / Access Block]
-        **Analysis**: [Analyze why this pattern is happening. If Grouped, explain the similarity (e.g., "All ZH sources are failing").]
+        **Analysis**: [Explain why this is happening. Point out any hidden patterns you detect.]
 
-        --------------------------------------------------
+        ---
         **📈 Source Analysis (Problematic Only)**
+        [Rank Top 3 worst feeds ordered by your technical assessment of their severity]
 
-        [For each source in sources[], ordered by your Leaderboard Judgement:]
-        **📛 [sourceName]**
-        **Alert Level**: [alertLevel] | **Health Score**: **[healthScore]/100**
-        **Stats**: [postsToday] posts (Avg: [avgPosts7Days]) | **Calculated Drop**: [XX]%
-        **Last Success**: [lastSuccessLabel]
-        **Primary Error**: [primaryError]
+        **📛 [0]**
+        **Alert Level**: [2] | **Health Score**: **[1]/100**
+        **Stats**: [3] posts (Avg: [4]) | **Drop**: [XX]%
+        **Primary Error**: [8] (Translate raw log to human terms)
 
-        **What's Happening**:
-        - [2 sentences of analysis. Connect the drop, error, and last success time.]
+        **What's Happening**: [1-2 sentences explaining the root issue.]
 
         **Root Cause Confidence**:
-        - [XX]% [Likely Cause A]
-        - [XX]% [Likely Cause B]
-        (Sum to 100%. Use your technical judgment to translate the primaryError.)
+        - [XX]% [Cause A]
+        - [XX]% [Cause B]
 
         **Decision**: [RETRY / MONITOR / WARNING / CRITICAL / ESCALATE]
-        **Recommended Action**: [One specific technical step]
+        **Recommended Action**: [Your expert recommendation for a technical fix.]
 
-        --------------------------------------------------
+        ---
         **🚨 Alerts**
-        - 🔴 [sourceName]: [Major signal]
-        - ⚠️ [sourceName]: [Minor signal]
+        - 🔴 [[0]]: [Major signal]
+        - ⚠️ [[0]]: [Minor signal]
 
-        --------------------------------------------------
+        ---
         **🛠️ Top Actions**
-        1. [Most urgent fix based on lowest Health Score or highest consecutive fails]
-        2. [Secondary priority fix or Grouped pattern resolution]
-        3. [Preventive task for sources showing volume drops or high issue ratios]
+        1. [Most urgent fix]
+        2. [Secondary priority fix]
+        3. [Preventive task]
 
-        --------------------------------------------------
+        ---
         **📌 Notes**
-        - [X] source(s) not listed: Healthy. No action needed.
-        - [Final cross-source observation or "System is stable outside of these issues"]
+        - [summary.healthyCount] source(s) not listed: Healthy. No action needed.
+        - [Your final cross-source observation or architectural thought.]
 
-        --------------------------------------------------
         Analyzed JSON:
         """
-        + json;
+        + reportJson;
   }
 }

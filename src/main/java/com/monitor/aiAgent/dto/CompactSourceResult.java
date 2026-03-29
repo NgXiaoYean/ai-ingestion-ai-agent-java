@@ -2,11 +2,14 @@ package com.monitor.aiAgent.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @AllArgsConstructor
-
+@NoArgsConstructor
+@Builder
 @JsonFormat(shape = JsonFormat.Shape.ARRAY)
 public class CompactSourceResult {
     private String sourceName; // [0]
@@ -18,4 +21,7 @@ public class CompactSourceResult {
     private int successRate7Days; // [6]
     private int consecutiveFailCount; // [7]
     private String primaryError; // [8]
+    private double highModRatio; // [9]
+    private double mediumModRatio; // [10]
+    private String sourceType; // [11]
 }

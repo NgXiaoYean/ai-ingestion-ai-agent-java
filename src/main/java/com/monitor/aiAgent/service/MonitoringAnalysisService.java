@@ -1,5 +1,6 @@
 package com.monitor.aiAgent.service;
 
+import com.monitor.aiAgent.dto.CompactMonitoringReport;
 import com.monitor.aiAgent.dto.MonitoringAnalysisReport;
 import com.monitor.aiAgent.dto.SourceAnalysisResult;
 import com.monitor.aiAgent.model.DailyStat;
@@ -274,5 +275,54 @@ public class MonitoringAnalysisService {
         if (hours < 24)
             return hours + " hours ago";
         return duration.toDays() + " days ago";
+    }
+
+    private double calculateAvgSuccess(List<SourceAnalysisResult> results) {
+        return results.stream()
+                .mapToInt(SourceAnalysisResult::getSuccessRate7Days)
+                .average()
+                .orElse(0);
+    }
+
+    private long calculateTotalPosts(List<SourceAnalysisResult> results) {
+        return results.stream()
+                .mapToLong(SourceAnalysisResult::getPostsToday)
+                .sum();
+    }
+
+    private Object[] mapToCompactArray(SourceAnalysisResult result) {
+        return new Object[] {
+                result.getSourceName(), // [0]
+                result.getHealthScore(), // [1]
+                result.getAlertLevel(), // [2]
+                result.getPostsToday(), // [3]
+                result.getAvgPosts7Days(), // [4]
+                result.getIngestionRatio(), // [5]
+                result.getSuccessRate7Days(), // [6]
+                result.getConsecutiveFailCount(), // [7]
+                result.getPrimaryError(), // [8]
+                result.getHighModRatio(), // [9]
+                result.getMediumModRatio(), // [10]
+                result.getSourceType() // [11]
+        };
+    }
+
+    public CompactMonitoringReport getCompactReport(List<SourceAnalysisResult> allResults) {
+        List<Object[]> problemSources = allResults.stream()
+                .filter(r -> !"NORMAL".equals(r.getAlertLevel()) || r.getHealthScore() < 100)
+                .map(this::mapToCompactArray)
+                .toList();
+
+        int healthyCount = allResults.size() - problemSources.size();
+
+        return CompactMonitoringReport.builder()
+                .summary(Map.of(
+                        "totalSources", allResults.size(),
+                        "healthyCount", healthyCount,
+                        "issues", problemSources.size(),
+                        "avgSuccessRate", calculateAvgSuccess(allResults),
+                        "totalPostsToday", calculateTotalPosts(allResults)))
+                .problemSources(problemSources)
+                .build();
     }
 }
